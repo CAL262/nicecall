@@ -1,0 +1,20 @@
+[submodule "caller"]
+	path = caller
+	url = https://github.com/CAL262/caller.git
+	branch = main
+[submodule "catcher"]
+	path = catcher
+	url = https://github.com/CAL262/catcher.git
+	branch = main
+[submodule "dashboard"]
+	path = dashboard
+	url = https://github.com/CAL262/dashboard.git
+	branch = main
+[submodule "gateway"]
+	path = gateway
+	url = https://github.com/CAL262/gateway.git
+	branch = main
+[submodule "payment"]
+	path = payment
+	url = https://github.com/CAL262/payment.git
+	branch = main
