@@ -4,17 +4,17 @@
 	branch = main
 [submodule "catcher"]
 	path = catcher
-	url = https://github.com/magaretjo/catcher.git
+	url = https://github.com/CAL262/catcher.git
 	branch = main
 [submodule "dashboard"]
 	path = dashboard
-	url = https://github.com/magaretjo/dashboard.git
+	url = https://github.com/CAL262/dashboard.git
 	branch = main
 [submodule "gateway"]
 	path = gateway
-	url = https://github.com/magaretjo/gateway.git
+	url = https://github.com/CAL262/gateway.git
 	branch = main
 [submodule "payment"]
 	path = payment
-	url = https://github.com/magaretjo/payment.git
+	url = https://github.com/CAL262/payment.git
 	branch = main
