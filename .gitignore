@@ -52,5 +52,6 @@ node_modules
 */bin/
 */lib/
 */build
-
+frontend/*
+kubernetes/*
 
