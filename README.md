@@ -12,15 +12,15 @@
         - 개요 및 구성 목표
         - 서비스 설계를 위한 Event Storming
         - 헥사고날 아키텍처 다이어그램 도출
-    - [구현방안 및 검증](#구현방안-및-검증)
-        - DDD 의 적용
-        - 폴리글랏 퍼시스턴스
-        - 동기식 호출 과 Fallback 처리
-        - 비동기식 호출 / 시간적 디커플링 / 장애격리 / 최종 (Eventual) 일관성
-        - SAGA / Correlation
-        - CQRS
-    - [베포 및 운영](#베포-및-운영)
-        - CI/CD 설정
+    - [구현방안 및 검증](#구현)
+        - [DDD 의 적용](#ddddomain-driven-design-의-적용)
+        - [폴리글랏 퍼시스턴스](#폴리글랏-퍼시스턴스)
+        - [동기식 호출 과 Fallback 처리](#동기식-호출과-fallback-처리)
+        - [비동기식 호출 / 시간적 디커플링 / 장애격리 / 최종(Eventual) 일관성](#비동기식-호출--시간적-디커플링--장애격리--최종-eventual-일관성)
+        - [SAGA / Correlation](#saga--correlation)
+        - [CQRS 구현](#cqrs-구현)
+    - [베포 및 운영](#배포-및-운영)
+        - [CI/CD 설정](#cicd-설정)
         - 동기식 호출 / 서킷 브레이킹 / 장애격리
         - 오토스케일 아웃
         - 무정지 재배포
@@ -81,7 +81,7 @@
 12. Self-healing (Liveness Probe)
 
 
-# <u>**분석/설계:**</u>
+# 분석/설계:
 
 
 ## 개요 및 구성 목표
@@ -166,11 +166,14 @@
   	- 대리기사 관리 시스템에 장애가 발생하더라도 콜 요청은 상시 받을 수 있어야 한다. (√)  
   	- 콜 결제 시스템에 과부하 발생 시 요청을 잠시 보류하고, 잠시 후에 다시 하도록 유도한다. (√)  
 
-### 완성된 최종 모델
+### Final V1.0
 
 ![img](./images/cal262-eventstorming-v4.1.png)
+- View Model을 CQRS 패턴을 적용하여 독립적인 마이크로 서비스로 추출
 
-    - View Model을 독립적인 마이크로 서비스로 추출
+### Final V2.0
+![](/images/cal262-eventstorming-v5.0.png)
+- 서비스 불능 지역일 경우 콜요청이 Deny되는 프로세스에 대해 SAGA 패턴 적용
 
 
 ## 헥사고날 아키텍처 다이어그램 도출
@@ -182,7 +185,8 @@
     - 서브 도메인과 바운디드 컨텍스트의 분리:  각 팀의 KPI 별로 아래와 같이 관심 구현 스토리를 나눠가짐
 
 
-# **구현:**
+
+# 구현:
 
 분석/설계 단계에서 도출된 헥사고날 아키텍처에 따라, 각 BC별로 대변되는 마이크로 서비스들을 **Spring Boot**로 구현하였다.
 구현한 각 서비스 로컬에서 실행하는 방법은 아래와 같다 (각자의 포트넘버는 위에서부터 8080 ~ 8084 이다)
@@ -203,6 +207,7 @@ mvn spring-boot:run
 cd dashboard
 mvn spring-boot:run  
 ```
+
 
 ## DDD(Domain-Driven-Design) 의 적용
 이벤트 스토밍의 결과로 도출된 Aggregate 단위로 Entity를 정의하였으며, 각 Domain 별 Entity는 다음과 같다.
@@ -297,7 +302,6 @@ public interface CallerRepository extends PagingAndSortingRepository<Caller, Lon
 - kafka 이벤트 모니터링
   ![](/images/cal262-kafka.png)
 
----
 
 ## 폴리글랏 퍼시스턴스
 
@@ -315,7 +319,7 @@ dashboard 서비스의 경우, H2DB를 사용한 다른 서비스들과 구별�
 
 gateway > application.yml 설정
 
-```java
+```yaml
 
 spring:
   profiles: docker
@@ -373,6 +377,22 @@ public interface PaymentService {
     public PaymentResult approve(@RequestBody HashMap<String, String> map);
 }
 ```
+- external.PaymentServiceFallback
+```java
+@Component
+public class PaymentServiceFallback implements PaymentService {
+    @Override
+    public PaymentResult approve(@RequestBody HashMap<String, String> map) {
+        // 에러코드(-2)와 메시지를 리턴한다.
+        PaymentResult pr = new PaymentResult();
+        pr.setResultCode(-2L);
+        pr.setResultMessage("### Circuit Breaker has been opened. Fallback returned instead ###");
+
+        return pr;
+    }
+}
+``` 
+
 
 - 실제 Payment 마이크로서비스에 구현되어 있는 REST API
 ```java
@@ -407,6 +427,7 @@ public interface PaymentService {
     }
 ```
 
+
 - Caller 서비스에서 PaymentService를 동기 방식으로 호출
 ```java
     @PostMapping("/calls/payCall/{callId}")
@@ -422,7 +443,8 @@ public interface PaymentService {
         // PaymentService에게 승인을 요청한다.
         // PaymentService 호출에 실패할 경우 -2를 리턴받고,
         // PaymetService 자체에서 오류가 날 경우 -1을 리턴한다.
-        PaymentResult pr = CallerApplication.applicationContext.getBean(nicecall.external.PaymentService.class)
+        PaymentResult pr = CallerApplication.applicationContext.getBean(
+                            nicecall.external.PaymentService.class)
         .approve(map);
 
         System.out.println("### PaymentService.process() returns : " + pr);
@@ -511,12 +533,13 @@ public interface PaymentService {
 
 위와 같은 비동기 방식으로 콜요청 및 결제시스템과 대리기사용 Catcher 시스템이 분리되어 있기 때문에 잠시 Catcher시스템에 장애가 있더라도 Catcher 시스템을 재기동한 후, 요청된 콜을 확인할 수 있다.
 1) catcher가 가동되지 않은 상태에서 콜 결제를 처리한다.
+   ![](/images/cal262-catcher-killed.png)
+   _catcher가 없어도 콜 요청 및 결제가 실행된다._
 
-MAGARET-TODO1
+1) catcher가 가동되면서 밀려있는 콜을 수신한다.
+   ![](/images/cal262-catcher-alive.png)
+   _catcher 서비스가 수행된 후 대기중인 콜 요청을 수신한다._
 
-2) catcher가 가동되면서 밀려있는 콜을 수신한다.
-
-MAGARET-TODO2
 
 ## SAGA / Correlation
 요청된 콜에 대해 결제가 완료되면 Catcher에게 해당 요청이 전달되는데, 만약 서비스 불가 지역이라면 해당 요청은 거절된 상태(CatchDenied)가 되며, Caller와 Payment 서비스에게도 각각 해당 콜이 불능 상태가 되었음을 알린다.
@@ -596,16 +619,43 @@ MAGARET-TODO2
 
     }
 ```
+4) Caller에게도 콜요청이 거부되었음을 알려준다.
+```java
+    @StreamListener(KafkaProcessor.INPUT)
+    public void wheneverCatchDenied_updateStatus(@Payload CatchDenied catchDenied){
+        if(!catchDenied.validate()) return;
+
+        log.info("\n\n##### listener Dashboard catchDenied : " + catchDenied.toJson() + "\n\n");
+
+        Long callId = Long.valueOf(catchDenied.getCallId());
+        Optional<Caller> caller = callerRepository.findById(callId);
+
+        if (!caller.isPresent()) {
+            throw new InvalidParameterException("<<< 대상 콜을 찾을 수 없습니다 (Wrong callerId : " + catchDenied.getCallId() + " ) >>> ");
+        }
+        Caller theCaller = caller.get();
+
+        theCaller.setStatus(CallerStatus.DENIED);
+        callerRepository.save(theCaller);
+
+    }
+```
+
+아래는 SAGA 패턴이 적용되어 정상적으로 요청되었던 콜이 Catcher에 의해 거부되는 모습이다.
+![](/images/cal262-saga-ex1.png)
+![](/images/cal262-saga-ex3.png)
+![](/images/cal262-saga-ex4.png)
+
 
 ## CQRS 구현
 복잡한 비즈니스 로직과 트랜잭션 처리를 해야 하는 Caller,Payment,Catcher 서비스와 다르게 단순 조회만을 위주로 하는 Dashboard 서비스는 CQRS 패턴을 적용하여 단순 조회만을 처리한다.
-![img.png](images/cal262-CQRS-ex1.png)
-![img.png](images/cal262-CQRS-ex2.png)
+![](/images/cal262-CQRS-ex1.png)
+![](/images/cal262-CQRS-ex2.png)
 
 
----
-# **배포 및 운영:**
 
+
+# 배포 및 운영:
 
 ## CI/CD 설정
 각 마이크로 서비스별로 build 후에 docker 이미지를 azure 레지스트리에 올린다.
@@ -643,6 +693,7 @@ kubectl apply -f ../catcher/azure/service.yaml
 ```
 _위와 같은 방식으로 나머지 마이크로서비스 프로젝트에 대해서도 수행한다._
 
+
 각 마이크로서비스에 Deployment, Service생성에 사용된 yaml 파일은 아래와 같다.
 - Deployment.yaml
 ```yaml
@@ -669,6 +720,11 @@ spec:
           ports:
             - containerPort: 8080
 ```
+_- 참고로 위의 yaml 파일은 가장 기본적인 형태이다.(각 마이크로서비스 특성에 따라 다른 속성이 추가된다)_
+
+
+![](/images/cal262-microservice-deployed.png)
+_- 각 마이크로서비스 컨테이너가 cloud에서 생성되고 있는 모습_
 
 - Service.yaml
 ```yaml
@@ -686,11 +742,10 @@ spec:
   selector:
     app: caller
 ```
-_참고로 위의 yaml 파일은 가장 기본적인 형태이다. 각 마이크로서비스 특성에 따라 속성이 추가됨_
 
-- 각 마이크로서비스가 cloud에 running 된 모습
+![](/images/cal262-microservice-running.png)
+_- 각 마이크로서비스가 cloud에 running 된 모습_
 
-MAGARET-TODO3
 
 서비스가 안정되면 Azure Cloud DevOps를 활용하여 다음과 같이 Pipeline을 작성하여 CI/CD를 자동화한다.
 - caller 마이크로서비스에 대해 CI/CD Pipeline 생성한 모습
@@ -763,12 +818,11 @@ metadata:
 data:
   area: kangnam,dongjak,nowon,mapo,jongro,bundang
 ```
+이와 같이 configMap이 작동되어 결제된 콜이 Catcher에 의해 거부되는 모습은 위 [SAGA 패턴 구현 샘플](#saga--correlation) 참조한다.
 
-- 서비스 지역이 아닐 경우, 거부 처리된 모습
-  MAGARET-TODO5
 
 ## Persistence Volume
-- nicecall-pvc.yaml 파일을 이용하여 persistanceVolumn 선언
+nicecall-pvc.yaml 파일을 이용하여 persistanceVolumn 선언하였다.
 ```yaml
 # nicecall-pvc.yaml
 apiVersion: v1
@@ -784,7 +838,7 @@ spec:
     requests:
       storage: 1Gi
 ```
-- deploy.yaml에 Volumn 및 Mount 정보 추가
+선언된 디스크 사용을 위해 caller와 catcher의 deploy.yaml에 Volumn 및 Mount 정보는 다음과 추가한다.
 ```yaml
 # deploy.yaml
 volumeMounts:
@@ -795,7 +849,7 @@ volumes:
     persistentVolumeClaim:
       claimName: nicecall-disk
 ```
-- application.yml에서 해당 경로를 사용
+application.yml에는 해당 볼륨에 사용할 경로를 지정한다.(caller의 설정 내용)
 ```yaml
 # application.yml
 logging:
@@ -803,10 +857,9 @@ logging:
     root: info
   file: /mnt/azure/logs/caller.log
 ```
-- 해당 로그 파일이 계속 누적하여 쌓이고 있는지 확인
-  MAGARET-TODO4
+해당 로그 파일이 계속 누적하여 쌓이고 있는지는 다음과 같이 확인한다.
+![](/images/cal262-pvc-logfile.png)
 
-...
 
 
 ----
@@ -904,16 +957,6 @@ kubectl apply -f kubernetes/deployment.yml
 
 * 먼저 무정지 재배포가 100% 되는 것인지 확인하기 위해서 Autoscaler 이나 CB 설정을 제거함.
 - 아래 Readiness 옵션이 적용되지 않은 버전으로 배포작업 직전에 siege로 워크로드를 모니터링 함.
-- <u>*****추후 최종 변경된 내용 아래 삽입하여 업데이트***</u>
-
-
-## Config. Map
-
-- <u>*****추후 최종 변경된 내용 아래 삽입하여 업데이트***</u>
-
-
-## Persistence Volume
-
 - <u>*****추후 최종 변경된 내용 아래 삽입하여 업데이트***</u>
 
 ## Self-healing (Liveness Probe)
