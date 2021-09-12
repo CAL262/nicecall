@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: siege
+  namespace: nicecall
+spec:
+  containers:
+  - name: siege
+    image: ghcr.io/spike73s/siege-nginx:latest

@@ -1,0 +1,33 @@
+apiVersion: extensions/v1beta1
+kind: Ingress
+metadata:
+  name: vhost-ingress
+  namespace: nicecall
+  annotations:
+    kubernetes.io/ingress.class: nginx
+spec:
+  rules:
+  - host: caller.nicecall.com
+    http:
+      paths:
+      - backend:
+          serviceName: caller
+          servicePort: 8080
+  - host: catcher.nicecall.com
+    http:
+      paths:
+      - backend:
+          serviceName: catcher
+          servicePort: 8080
+  - host: dashboard.nicecall.com
+    http:
+      paths:
+      - backend:
+          serviceName: dashboard
+          servicePort: 8080
+  - host: payment.nicecall.com
+    http:
+      paths:
+      - backend:
+          serviceName: payment
+          servicePort: 8080

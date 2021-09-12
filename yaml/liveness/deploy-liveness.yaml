@@ -1,0 +1,50 @@
+apiVersion : apps/v1
+kind: Deployment
+metadata:
+  name: catcher
+  namespace: nicecall
+  labels:
+    app: catcher
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: catcher
+  template:
+    metadata:
+      labels:
+        app: catcher
+    spec:
+      containers:
+        - name: catcher
+          image: kubecal262.azurecr.io/nicecall-catcher:v0.1
+          ports:
+            - containerPort: 8080
+          env:
+            - name: catcher-area
+              valueFrom:
+                configMapKeyRef:
+                  name: catcher-cm
+                  key: area
+          livenessProbe:
+            httpGet:
+              path: '/actuator/health'
+              port: 8080
+            initialDelaySeconds: 120
+            timeoutSeconds: 2
+            periodSeconds: 5
+            failureThreshold: 3
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "200m"
+            limits:
+              memory: "500Mi"
+              cpu: "500m"
+          volumeMounts:
+            - mountPath: "/mnt/azure"
+              name: volume
+      volumes:
+        - name: volume
+          persistentVolumeClaim:
+            claimName: nicecall-disk
